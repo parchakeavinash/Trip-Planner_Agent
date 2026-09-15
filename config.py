@@ -9,9 +9,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
-    GROQ_API_KEY: str
     DATABASE_URL: str
+    GROQ_API_KEY: str
     TAVILY_API_KEY: str
     AVIATIONSTACK_API_KEY: str
 
