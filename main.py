@@ -7,7 +7,7 @@ from pathlib import Path
 
 from typing import TypedDict, Annotated,List
 from langgraph.graph import StateGraph, START, END
-# from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from app.services.flight_service import extract_flight_info
 from langchain_core.messages import(
     AnyMessage,
@@ -26,10 +26,12 @@ from app.schemas.travel_schema import TravelDetails
 from app.services.travel_parser import extract_travel_details
 
 llm = ChatGroq(
-    model = "llama-3.3-70b-versatile",
+    model = "qwen/qwen3.8-27b",
     api_key=settings.GROQ_API_KEY,
 )
 
+#db
+DATABASE_URL = settings.DATABASE_URL
 # State
 class TravelState(TypedDict):
     messages: Annotated[List[AnyMessage],operator.add]
@@ -40,7 +42,6 @@ class TravelState(TypedDict):
     itinerary: str
     llm_calls: int
 
-#create agents
 # Parser_agent
 def parser_agent(state: TravelState):
 
@@ -52,13 +53,13 @@ def parser_agent(state: TravelState):
         "travel_details": details,
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
-# flight agent
 
+# flight agent
 def flight_agent(state: TravelState):
     details = state["travel_details"]
     # query = state['user_query']
     # flight_info = extract_flight_info(
-    #         state["user_query"]
+    #         query
     #     )
 
     dep_iata = get_airport_code(
@@ -145,7 +146,7 @@ def itinerary_agent(state: TravelState):
    }
 
 #final response agent
-def final_agenet(state:TravelState):
+def final_agent(state:TravelState):
     final_prompt = f"""
     Generate the final travel plan for the user.
 
@@ -178,7 +179,7 @@ graph.add_node('parser_agent',parser_agent)
 graph.add_node('flight_agent',flight_agent)
 graph.add_node('hotel_agent',hotel_agent)
 graph.add_node('itinerary_agent',itinerary_agent)
-graph.add_node('final_agent',final_agenet)
+graph.add_node('final_agent',final_agent)
 
 graph.add_edge(START, 'parser_agent')
 graph.add_edge('parser_agent', 'flight_agent')
@@ -187,9 +188,21 @@ graph.add_edge("hotel_agent", 'itinerary_agent')
 graph.add_edge("itinerary_agent", 'final_agent')
 graph.add_edge("final_agent", END)
 
-app = graph.compile()
+# Database connection:
+conn = psycopg.connect(DATABASE_URL)
+checkpointer = PostgresSaver(conn=conn)
+checkpointer.setup()
+
+app = graph.compile(
+    checkpointer=checkpointer,
+)
 
 if __name__== '__main__':
+    config = {
+        'configurable': {
+            'thread_id': 'avi123',
+        }
+    }
     user_query = input("Enter you travel request:\n")
 
     result = app.invoke(
@@ -201,7 +214,8 @@ if __name__== '__main__':
             "itinerary": "",
             "llm_calls": 0,
 
-        }
+        },
+        config = config
     )
 
 # its optional
